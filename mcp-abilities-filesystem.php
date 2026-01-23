@@ -1358,4 +1358,396 @@ error_log( "MCP Filesystem: Registered filesystem/get-changelog" );
 				$parent = dirname( $full_path );
 				$real_parent = realpath( $parent );
 
-			
+				if ( false === $real_parent && ! $recursive ) {
+					return array(
+						'success' => false,
+						'message' => 'Parent directory does not exist.',
+					);
+				}
+
+				if ( $real_parent && ! $mcp_is_path_in_wp_root( $real_parent ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Access denied. Path must be within the WordPress root directory.',
+					);
+				}
+
+				if ( ! $real_parent && ! $mcp_is_path_in_wp_root( $full_path ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Access denied. Path must be within the WordPress root directory.',
+					);
+				}
+
+				if ( file_exists( $full_path ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Path already exists.',
+					);
+				}
+
+				// Initialize WP_Filesystem.
+				global $wp_filesystem;
+				if ( ! function_exists( 'WP_Filesystem' ) ) {
+					require_once ABSPATH . 'wp-admin/includes/file.php';
+				}
+				WP_Filesystem();
+
+				$created = $recursive ? wp_mkdir_p( $full_path ) : $wp_filesystem->mkdir( $full_path, $permissions );
+				if ( ! $created ) {
+					return array(
+						'success' => false,
+						'message' => 'Failed to create directory.',
+					);
+				}
+
+				// Apply custom permissions if different from default.
+				if ( $permissions !== 0755 ) {
+					$wp_filesystem->chmod( $full_path, $permissions );
+				}
+
+				return array(
+					'success' => true,
+					'message' => 'Directory created successfully.',
+					'path'    => realpath( $full_path ),
+				);
+			},
+			'permission_callback' => function (): bool {
+				return current_user_can( 'manage_options' );
+			},
+			'meta'                => array(
+				'mcp' => array('public' => true, 'type' => 'tool'),
+				'annotations' => array(
+					'readonly'    => false,
+					'destructive' => false,
+					'idempotent'  => false,
+				),
+			),
+		)
+	);
+
+	// =========================================================================
+	// FILESYSTEM - Copy File
+	// =========================================================================
+	wp_register_ability(
+		'filesystem/copy-file',
+		array(
+			'label'               => 'Copy File',
+			'description'         => '[FILESYSTEM] Copies file.',
+			'category'            => 'site',
+			'input_schema'        => array(
+				'type'                 => 'object',
+				'properties'           => array(
+					'source'    => array(
+						'type'        => 'string',
+						'description' => 'Source file path.',
+					),
+					'dest'      => array(
+						'type'        => 'string',
+						'description' => 'Destination file path.',
+					),
+					'overwrite' => array(
+						'type'        => 'boolean',
+						'default'     => false,
+						'description' => 'Overwrite destination if it exists.',
+					),
+					'context'   => array(
+						'type'        => 'string',
+						'description' => 'Brief description of why this copy is being made.',
+					),
+				),
+				'required'             => array( 'source', 'dest' ),
+				'additionalProperties' => false,
+			),
+			'output_schema'       => array(
+				'type'       => 'object',
+				'properties' => array(
+					'success'     => array( 'type' => 'boolean' ),
+					'message'     => array( 'type' => 'string' ),
+					'source'      => array( 'type' => 'string' ),
+					'dest'        => array( 'type' => 'string' ),
+					'backup_path' => array( 'type' => 'string' ),
+				),
+			),
+			'execute_callback'    => function ( array $input ) use ( $mcp_create_backup, $mcp_log_filesystem_operation, $mcp_check_write_security, $mcp_is_path_in_wp_root ): array {
+				$source    = $input['source'] ?? '';
+				$dest      = $input['dest'] ?? '';
+				$overwrite = $input['overwrite'] ?? false;
+				$context   = $input['context'] ?? '';
+
+				if ( empty( $source ) || empty( $dest ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Source and destination are required.',
+					);
+				}
+
+				$source_path = strpos( $source, '/' ) !== 0 ? ABSPATH . $source : $source;
+				$dest_path   = strpos( $dest, '/' ) !== 0 ? ABSPATH . $dest : $dest;
+
+				$source_path = realpath( $source_path );
+
+				if ( false === $source_path ) {
+					return array(
+						'success' => false,
+						'message' => 'Source file not found.',
+					);
+				}
+
+				if ( ! $mcp_is_path_in_wp_root( $source_path ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Source access denied. Path must be within the WordPress root directory.',
+					);
+				}
+
+				$dest_dir = realpath( dirname( $dest_path ) );
+				if ( false === $dest_dir || ! $mcp_is_path_in_wp_root( $dest_dir ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Destination access denied. Path must be within the WordPress root directory.',
+					);
+				}
+
+				$final_dest = $dest_dir . '/' . basename( $dest_path );
+
+				$security_error = $mcp_check_write_security( $final_dest );
+				if ( $security_error ) {
+					return array(
+						'success' => false,
+						'message' => $security_error,
+					);
+				}
+
+				$backup_path = null;
+
+				if ( file_exists( $final_dest ) ) {
+					if ( ! $overwrite ) {
+						return array(
+							'success' => false,
+							'message' => 'Destination already exists. Use overwrite=true to replace.',
+						);
+					}
+					$backup_path = $mcp_create_backup( $final_dest );
+				}
+
+				// Initialize WP_Filesystem.
+				global $wp_filesystem;
+				if ( ! function_exists( 'WP_Filesystem' ) ) {
+					require_once ABSPATH . 'wp-admin/includes/file.php';
+				}
+				WP_Filesystem();
+
+				if ( ! $wp_filesystem->copy( $source_path, $final_dest, $overwrite, FS_CHMOD_FILE ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Failed to copy file.',
+					);
+				}
+
+				$mcp_log_filesystem_operation( 'COPY', $source_path, array(
+					'destination' => $final_dest,
+					'backup'      => $backup_path,
+					'context'     => $context,
+				) );
+
+				$result = array(
+					'success' => true,
+					'message' => 'File copied successfully.',
+					'source'  => $source_path,
+					'dest'    => $final_dest,
+				);
+
+				if ( $backup_path ) {
+					$result['backup_path'] = $backup_path;
+				}
+
+				return $result;
+			},
+			'permission_callback' => function (): bool {
+				return current_user_can( 'manage_options' );
+			},
+			'meta'                => array(
+				'mcp' => array('public' => true, 'type' => 'tool'),
+				'annotations' => array(
+					'readonly'    => false,
+					'destructive' => false,
+					'idempotent'  => false,
+				),
+			),
+		)
+	);
+
+	// =========================================================================
+	// FILESYSTEM - Move/Rename File
+	// =========================================================================
+	wp_register_ability(
+		'filesystem/move-file',
+		array(
+			'label'               => 'Move/Rename File',
+			'description'         => '[FILESYSTEM] Moves/renames file. DESTRUCTIVE.',
+			'category'            => 'site',
+			'input_schema'        => array(
+				'type'                 => 'object',
+				'properties'           => array(
+					'source'    => array(
+						'type'        => 'string',
+						'description' => 'Source file path.',
+					),
+					'dest'      => array(
+						'type'        => 'string',
+						'description' => 'Destination file path.',
+					),
+					'overwrite' => array(
+						'type'        => 'boolean',
+						'default'     => false,
+						'description' => 'Overwrite destination if it exists.',
+					),
+					'context'   => array(
+						'type'        => 'string',
+						'description' => 'Brief description of why this move is being made.',
+					),
+				),
+				'required'             => array( 'source', 'dest' ),
+				'additionalProperties' => false,
+			),
+			'output_schema'       => array(
+				'type'       => 'object',
+				'properties' => array(
+					'success'            => array( 'type' => 'boolean' ),
+					'message'            => array( 'type' => 'string' ),
+					'source'             => array( 'type' => 'string' ),
+					'dest'               => array( 'type' => 'string' ),
+					'source_backup_path' => array( 'type' => 'string' ),
+					'dest_backup_path'   => array( 'type' => 'string' ),
+				),
+			),
+			'execute_callback'    => function ( array $input ) use ( $mcp_create_backup, $mcp_log_filesystem_operation, $mcp_check_write_security, $mcp_is_path_in_wp_root ): array {
+				$source    = $input['source'] ?? '';
+				$dest      = $input['dest'] ?? '';
+				$overwrite = $input['overwrite'] ?? false;
+				$context   = $input['context'] ?? '';
+
+				if ( empty( $source ) || empty( $dest ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Source and destination are required.',
+					);
+				}
+
+				$source_path = strpos( $source, '/' ) !== 0 ? ABSPATH . $source : $source;
+				$dest_path   = strpos( $dest, '/' ) !== 0 ? ABSPATH . $dest : $dest;
+
+				$source_path = realpath( $source_path );
+
+				if ( false === $source_path ) {
+					return array(
+						'success' => false,
+						'message' => 'Source file not found.',
+					);
+				}
+
+				if ( ! $mcp_is_path_in_wp_root( $source_path ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Source access denied. Path must be within the WordPress root directory.',
+					);
+				}
+
+				if ( strpos( $source_path, ABSPATH . 'wp-includes/' ) === 0 ||
+					strpos( $source_path, ABSPATH . 'wp-admin/' ) === 0 ) {
+					return array(
+						'success' => false,
+						'message' => 'Cannot move WordPress core files.',
+					);
+				}
+
+				$dest_dir = realpath( dirname( $dest_path ) );
+				if ( false === $dest_dir || ! $mcp_is_path_in_wp_root( $dest_dir ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Destination access denied. Path must be within the WordPress root directory.',
+					);
+				}
+
+				$final_dest = $dest_dir . '/' . basename( $dest_path );
+
+				$security_error = $mcp_check_write_security( $final_dest );
+				if ( $security_error ) {
+					return array(
+						'success' => false,
+						'message' => $security_error,
+					);
+				}
+
+				$source_backup_path = null;
+				$dest_backup_path   = null;
+
+				$source_backup_path = $mcp_create_backup( $source_path );
+				if ( false === $source_backup_path ) {
+					return array(
+						'success' => false,
+						'message' => 'Failed to create source backup.',
+					);
+				}
+
+				if ( file_exists( $final_dest ) ) {
+					if ( ! $overwrite ) {
+						return array(
+							'success' => false,
+							'message' => 'Destination already exists. Use overwrite=true to replace.',
+						);
+					}
+					$dest_backup_path = $mcp_create_backup( $final_dest );
+				}
+
+				// Initialize WP_Filesystem.
+				global $wp_filesystem;
+				if ( ! function_exists( 'WP_Filesystem' ) ) {
+					require_once ABSPATH . 'wp-admin/includes/file.php';
+				}
+				WP_Filesystem();
+
+				if ( ! $wp_filesystem->move( $source_path, $final_dest, $overwrite ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Failed to move file.',
+					);
+				}
+
+				$mcp_log_filesystem_operation( 'MOVE', $source_path, array(
+					'destination' => $final_dest,
+					'backup'      => $source_backup_path,
+					'context'     => $context,
+				) );
+
+				$result = array(
+					'success'            => true,
+					'message'            => 'File moved successfully.',
+					'source'             => $source_path,
+					'dest'               => $final_dest,
+					'source_backup_path' => $source_backup_path,
+				);
+
+				if ( $dest_backup_path ) {
+					$result['dest_backup_path'] = $dest_backup_path;
+				}
+
+				return $result;
+			},
+			'permission_callback' => function (): bool {
+				return current_user_can( 'manage_options' );
+			},
+			'meta'                => array(
+				'mcp' => array('public' => true, 'type' => 'tool'),
+				'annotations' => array(
+					'readonly'    => false,
+					'destructive' => true,
+					'idempotent'  => false,
+				),
+			),
+		)
+	);
+}
+// Register abilities directly on the hook - no wrapper needed since this file is loaded during plugin loading
+add_action( 'wp_abilities_api_init', 'mcp_register_filesystem_abilities' );
