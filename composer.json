@@ -1,0 +1,19 @@
+{
+    "name": "tylerthedev819/mcp-abilities-filesystem",
+    "description": "MCP Abilities Filesystem - Add-on for mcp-expose-abilities WordPress plugin",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "authors": [
+        {
+            "name": "Devenia",
+            "homepage": "https://devenia.com"
+        }
+    ],
+    "require": {
+        "php": ">=7.4",
+        "composer/installers": "^1.0 || ^2.0"
+    },
+    "extra": {
+        "installer-name": "aaa-mcp-abilities-filesystem"
+    }
+}
