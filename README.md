@@ -8,7 +8,7 @@ Filesystem abilities for MCP. Read, write, copy, move, and delete files within W
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 1.0.6
+**Stable tag:** 1.0.7
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -16,7 +16,7 @@ Filesystem abilities for MCP. Read, write, copy, move, and delete files within W
 
 Filesystem abilities for MCP. Read, write, copy, move, and delete files within WordPress. Security-hardened with PHP injection detection.
 
-This plugin is part of the Devenia MCP abilities ecosystem. It gives an MCP-capable agent a focused, authenticated way to work with Filesystem work inside WordPress through MCP.
+This plugin is part of the MCP abilities ecosystem. It gives an MCP-capable agent a focused, authenticated way to work with Filesystem work inside WordPress through MCP.
 
 **Example:** "Handle this WordPress maintenance task directly." - The agent can inspect the site, call the relevant ability, and return the result without making the human click through wp-admin for every step.
 
@@ -186,6 +186,10 @@ This plugin includes extensive security hardening:
 
 ## Changelog
 
+### 1.0.7
+- Update tested WordPress version metadata for Plugin Check.
+- Align public release identity with the Basicus author/contributor rule.
+
 ### 1.0.6
 - Docs: expanded the WordPress-standard `readme.txt` so the published ZIP now includes fuller requirements, abilities, use cases, and Devenia ecosystem links
 
@@ -214,7 +218,7 @@ GPL-2.0+
 
 ## Author
 
-[Devenia](https://devenia.com) - We've been doing SEO and web development since 1993.
+[basicus](https://profiles.wordpress.org/basicus/)
 
 ## Links
 

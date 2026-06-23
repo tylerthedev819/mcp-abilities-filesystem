@@ -1,9 +1,9 @@
 === MCP Abilities - Filesystem ===
-Contributors: devenia
+Contributors: basicus
 Tags: mcp, filesystem, ai, automation
 Requires at least: 6.9
-Tested up to: 6.9
-Stable tag: 1.0.6
+Tested up to: 7.0
+Stable tag: 1.0.7
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -57,6 +57,10 @@ Part of the [MCP Expose Abilities](https://devenia.com/plugins/mcp-expose-abilit
 * [All Add-on Plugins](https://devenia.com/plugins/mcp-expose-abilities/#add-ons)
 
 == Changelog ==
+
+= 1.0.7 =
+* Update tested WordPress version metadata for Plugin Check.
+* Align public release identity with the Basicus author/contributor rule.
 
 = 1.0.6 =
 * Docs: expanded the WordPress-standard `readme.txt` so the published ZIP now includes fuller requirements, abilities, use cases, and Devenia ecosystem links
