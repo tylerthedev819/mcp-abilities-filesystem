@@ -3,7 +3,7 @@ Contributors: basicus
 Tags: mcp, filesystem, ai, automation
 Requires at least: 6.9
 Tested up to: 7.0
-Stable tag: 1.0.8
+Stable tag: 1.0.9
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -57,6 +57,9 @@ Part of the [MCP Expose Abilities](https://devenia.com/plugins/mcp-expose-abilit
 * [All Add-on Plugins](https://devenia.com/plugins/mcp-expose-abilities/#add-ons)
 
 == Changelog ==
+
+= 1.0.9 =
+* Fixed `filesystem/delete-directory` logging so successful deletes do not throw a callback exception.
 
 = 1.0.8 =
 * Fixed `filesystem/create-directory` so it can access the shared WordPress-root path guard.

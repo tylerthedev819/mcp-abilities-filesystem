@@ -3,7 +3,7 @@
  * Plugin Name: MCP Abilities - Filesystem
  * Plugin URI: https://github.com/bjornfix/mcp-abilities-filesystem
  * Description: Filesystem abilities for MCP. Read, write, copy, move, and delete files within WordPress. Security-hardened with PHP injection detection.
- * Version: 1.0.8
+ * Version: 1.0.9
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0+
@@ -1365,7 +1365,10 @@ function mcp_register_filesystem_abilities(): void {
 					);
 				}
 
-				$mcp_log_filesystem_operation( 'delete-directory', $full_path, $context );
+				$mcp_log_filesystem_operation( 'DELETE_DIRECTORY', $full_path, array(
+					'recursive' => $recursive,
+					'context'   => $context,
+				) );
 
 				return array(
 					'success' => true,
