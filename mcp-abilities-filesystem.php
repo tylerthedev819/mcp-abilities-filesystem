@@ -238,12 +238,6 @@ error_log( "MCP Filesystem: Dependencies OK, defining helpers" );
 			return "Cannot write files with .{$extension} extension.";
 		}
 
-		// Block ALL PHP-like extensions everywhere.
-		$php_extensions = array( 'php', 'phtml', 'php3', 'php4', 'php5', 'php7', 'php8', 'phps', 'phar' );
-		if ( in_array( $extension, $php_extensions, true ) ) {
-			return 'Cannot write PHP files via filesystem abilities. Use plugins/upload for PHP deployment.';
-		}
-
 		// Block .htaccess in subdirectories (only allow in document root).
 		if ( 'htaccess' === $extension && $filename === '.htaccess' ) {
 			$real_dir = realpath( dirname( $path ) );
@@ -1337,7 +1331,7 @@ error_log( "MCP Filesystem: Registered filesystem/get-changelog" );
 					'path'    => array( 'type' => 'string' ),
 				),
 			),
-			'execute_callback'    => function ( array $input ): array {
+			'execute_callback'    => function ( array $input ) use ( $mcp_is_path_in_wp_root ): array {
 				$path        = $input['path'] ?? '';
 				$permissions = octdec( $input['permissions'] ?? '0755' );
 				$recursive   = $input['recursive'] ?? true;
