@@ -1,220 +1,154 @@
 # MCP Abilities - Filesystem
 
-Filesystem abilities for MCP. Read, write, copy, move, and delete files within WordPress. Security-hardened with PHP injection detection.
+Inspect WordPress files, update a permitted text file, and check the recorded change from your MCP client. This add-on provides eleven administrator-only abilities for file and directory work inside the WordPress root.
 
-[![Release 1.0.9](https://img.shields.io/badge/release-1.0.9-blue.svg)](https://downloads.devenia.com/mcp-abilities-filesystem.zip)
-[![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/gpl-2.0)
-[![WordPress](https://img.shields.io/badge/WordPress-6.9%2B-blue.svg)](https://wordpress.org)
-[![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
+[![Release 1.0.10](https://img.shields.io/badge/release-1.0.10-blue.svg)](https://downloads.devenia.com/mcp-abilities-filesystem.zip)
+[![License GPLv2 or later](https://img.shields.io/badge/license-GPLv2%2B-blue.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
+[![WordPress 6.9+](https://img.shields.io/badge/WordPress-6.9%2B-blue.svg)](https://wordpress.org/download/)
+[![PHP 8.0+](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://www.php.net/downloads.php)
 
-**Tested up to:** 7.0
-**Stable tag:** 1.0.9
+**Stable tag:** 1.0.10
+**Tested up to:** WordPress 7.1 (7.1-RC3)
 **License:** GPLv2 or later
-**License URI:** https://www.gnu.org/licenses/gpl-2.0.html
+**Tags:** mcp, filesystem, ai, automation
 
 ## What It Does
 
-Filesystem abilities for MCP. Read, write, copy, move, and delete files within WordPress. Security-hardened with PHP injection detection.
-
-This plugin is part of the MCP abilities ecosystem. It gives an MCP-capable agent a focused, authenticated way to work with Filesystem work inside WordPress through MCP.
-
-**Example:** "Handle this WordPress maintenance task directly." - The agent can inspect the site, call the relevant ability, and return the result without making the human click through wp-admin for every step.
+Read a bounded part of a file, inspect its metadata, or list a directory before changing it. Write and append permitted content, create directories, copy or move files, and delete selected paths. File operations use path checks, content restrictions, and backups where supported.
 
 ## The Real Workflow
 
-In practice, the human should not have to memorize every ability name.
+1. Connect an MCP client as a WordPress administrator with `manage_options`.
+2. Discover the filesystem abilities and inspect the target directory and file.
+3. Specify the exact change, including overwrite or recursive deletion when needed.
+4. Call the ability and inspect its `success`, message, and returned paths.
+5. Read the file back and inspect the operations log when the operation records one.
 
-The normal pattern is:
-
-1. install the base MCP stack
-2. install only the add-ons the site actually needs
-3. let the agent discover the available abilities
-4. give the agent a clear task with boundaries
-5. verify the result in WordPress
-
-The human's job is mostly to describe the goal.
-The agent's job is to figure out the mechanics.
+For example: “Read the current robots.txt, replace it with this approved text, keep the default backup, and read it back.” The add-on operates on the physical file; it does not edit WordPress virtual robots.txt output.
 
 ## Why This Feels Different
 
-Most WordPress automation still leaves the repetitive part to the human.
-
-This plugin is different because the agent can act inside the site through a narrow, authenticated ability surface:
-
-- inspect current site state before changing anything
-- run the specific action needed for the task
-- return structured results that are easy to verify
-- keep the workflow inside WordPress instead of a separate checklist
-
-That changes the experience from:
-
-- `Here is what you should do in wp-admin`
-
-to:
-
-- `Tell the agent what needs doing, and let it carry out the work`
+The client receives typed WordPress operations with concrete results. A file read has a size limit, overwriting a copy destination requires an explicit option, and a failed required backup stops the corresponding change. The client can use these results to check a maintenance action in the same conversation.
 
 ## Before vs After
 
-### Before
-
-- ask the AI what to do
-- copy the answer into WordPress by hand
-- click through wp-admin for the repetitive bits
-- postpone maintenance because the task is tedious
-
-### After
-
-- tell the agent what needs doing
-- let it inspect the relevant WordPress state
-- let it run the targeted ability
-- verify the result and move on
+| Task | Manual file workflow | With this add-on |
+| --- | --- | --- |
+| Inspect a text file | Open a separate file tool and locate the site | Read its relative WordPress path |
+| Replace a data file | Save a backup and upload new content | Write permitted content with a default backup |
+| Check an automated change | Compare files and separate notes | Read the result and inspect recorded operations |
 
 ## Who It Is For
 
-This is a good fit for:
+WordPress administrators and developers who need authenticated agent access to site files. The abilities support text and data maintenance, upload-directory inspection, and targeted cleanup. They require administrative access and do not provide a general PHP code editor.
 
-- agencies managing WordPress sites with AI-assisted maintenance
-- operators who want agents to do real WordPress work instead of producing instructions
-- teams already using MCP Expose Abilities
-- sites where this WordPress area is updated often enough to deserve automation
+## Requirements
 
-It is especially useful when the manual version is repetitive enough that important maintenance gets delayed.
+- [WordPress 6.9 or newer](https://wordpress.org/download/), including its built-in [Abilities API](https://developer.wordpress.org/apis/abilities-api/).
+- [PHP 8.0 or newer](https://www.php.net/downloads.php).
+- [WordPress MCP Adapter](https://github.com/WordPress/mcp-adapter) for MCP transport.
+- [MCP Expose Abilities](https://devenia.com/plugins/mcp-expose-abilities/) for the Devenia MCP exposure workflow.
+- An authenticated WordPress user with `manage_options` and filesystem access sufficient for the requested operation.
+
+The plugin registers abilities through the native API. Adapter and exposure configuration determine their availability to an MCP client. WordPress 6.9+ does not require a separate Abilities API plugin.
 
 ## Documentation
 
-Start with the main plugin page and base stack documentation:
-
-- [MCP Expose Abilities](https://devenia.com/plugins/mcp-expose-abilities/)
-- [Plugin page](https://devenia.com/plugins/mcp-abilities-filesystem/)
-- [Getting Started](https://github.com/bjornfix/mcp-expose-abilities/wiki/Getting-Started)
-- [Install Order and Dependencies](https://github.com/bjornfix/mcp-expose-abilities/wiki/Install-Order-and-Dependencies)
-
-If you are using an AI agent, the simplest instruction is often just:
-
-- `Read https://github.com/bjornfix/mcp-expose-abilities and figure out the stack before making changes.`
+Read the [Filesystem plugin page](https://devenia.com/plugins/mcp-abilities-filesystem/) and the [MCP Expose Abilities documentation](https://devenia.com/plugins/mcp-expose-abilities/) for the plugin and connection workflow.
 
 ## Start Here
 
-If you are new to the stack, use this order:
-
-1. Install **Abilities API**.
-2. Install **MCP Adapter**.
-3. Install **MCP Expose Abilities**.
-4. Install **MCP Abilities - Filesystem**.
-5. Confirm the new abilities appear in discovery.
-6. Give the agent a clear task that uses this add-on.
-
-If you skip base-stack verification and start with add-ons immediately, troubleshooting gets harder than it needs to be.
+Install and configure the MCP stack, activate this add-on, then discover its abilities. Start with `filesystem/list-directory` and `filesystem/read-file`. Inspect the current data before requesting a write.
 
 ## Abilities (11)
 
-| Ability | Description |
-|---------|-------------|
-| `filesystem/read-file` | Read file contents (text or binary) |
-| `filesystem/write-file` | Write content to file (PHP blocked) |
-| `filesystem/append-file` | Append content to existing file |
-| `filesystem/delete-file` | Delete file (creates backup first) |
-| `filesystem/delete-directory` | Delete directory (optional recursive delete) |
-| `filesystem/copy-file` | Copy file to new location |
-| `filesystem/move-file` | Move or rename file |
-| `filesystem/list-directory` | List directory contents |
-| `filesystem/create-directory` | Create new directory |
-| `filesystem/file-info` | Get file metadata (size, dates, permissions) |
-| `filesystem/get-changelog` | Get changelog from plugin/theme |
+| Ability | Public behavior |
+| --- | --- |
+| `filesystem/read-file` | Read bounded content; reject protected secret paths. |
+| `filesystem/write-file` | Create or overwrite a permitted file; backup defaults to true. |
+| `filesystem/append-file` | Append or prepend to an existing file; validate the complete result. |
+| `filesystem/delete-file` | Delete a file; backup defaults to true. |
+| `filesystem/delete-directory` | Delete a directory; recursive deletion defaults to false and has no backup. |
+| `filesystem/copy-file` | Copy permitted file content; explicit overwrite backs up the destination. |
+| `filesystem/move-file` | Move permitted file content; back up the source and any overwritten destination. |
+| `filesystem/list-directory` | List directory entries with depth, pattern, and item limits. |
+| `filesystem/create-directory` | Create a directory, optionally with missing parents. |
+| `filesystem/file-info` | Return path metadata, permissions, and access information. |
+| `filesystem/get-changelog` | Return recent entries from this add-on's operations log. |
+
+`get-changelog` is an operations log reader, not a plugin or theme release-notes reader. Directory listing defaults to 1,000 entries, accepts at most 5,000, and reports truncation. Recursive depth defaults to 2 and is capped at 8.
 
 ## Usage Examples
 
-### Read a file
+These objects identify an ability and its input. Use your client's discovered execution interface to submit them.
+
+Read a file:
 
 ```json
-{
-  "ability_name": "filesystem/read-file",
-  "parameters": {
-    "path": "wp-content/plugins/my-plugin/config.json"
-  }
-}
+{"ability_name":"filesystem/read-file","parameters":{"path":"robots.txt"}}
 ```
 
-### Write a file
+Write a file in an existing directory:
 
 ```json
-{
-  "ability_name": "filesystem/write-file",
-  "parameters": {
-    "path": "wp-content/uploads/data/export.csv",
-    "content": "name,email\nJohn,john@example.com"
-  }
-}
+{"ability_name":"filesystem/write-file","parameters":{"path":"wp-content/uploads/inventory.csv","content":"product,quantity\nExample,12\n","context":"Update approved inventory export"}}
 ```
 
-### List directory
+Inspect a directory:
 
 ```json
-{
-  "ability_name": "filesystem/list-directory",
-  "parameters": {
-    "path": "wp-content/uploads/2024/",
-    "recursive": false
-  }
-}
+{"ability_name":"filesystem/list-directory","parameters":{"path":"wp-content/uploads","recursive":false,"max_items":100}}
 ```
 
-### Delete with backup
+Review recorded changes:
 
 ```json
-{
-  "ability_name": "filesystem/delete-file",
-  "parameters": {
-    "path": "wp-content/uploads/old-file.txt"
-  }
-}
+{"ability_name":"filesystem/get-changelog","parameters":{"lines":20}}
 ```
 
-Files are backed up to `wp-content/mcp-backups/YYYY-MM-DD/` before deletion.
+## Safety and Ownership Boundaries
 
-## Security Features
+Every ability requires `manage_options`. Paths resolve within the WordPress root. Root listing is allowed; deleting the WordPress root is rejected. Destination checks resolve symbolic links and existing ancestors, and recursive listing skips paths that resolve outside the root.
 
-This plugin includes extensive security hardening:
+Reads reject the root `wp-config.php`, selected environment and SSH key filenames, and common key or certificate extensions. The same source restriction applies to copy and move. This is a defined filename policy, not automatic detection of every secret stored in arbitrary files.
 
-- **PHP Injection Detection** - Blocks `<?php`, `<?=`, and obfuscated PHP patterns
-- **Encoding Bypass Protection** - Detects UTF-7, UTF-16, and Base64 encoded PHP
-- **Path Traversal Protection** - Blocks `../` and absolute paths outside WordPress
-- **Directory Restrictions** - Limited to the WordPress root directory
-- **Automatic Backups** - Files backed up before deletion
-- **50+ Attack Vectors Tested** - Comprehensive security testing
+Writes reject PHP-like and executable target extensions, disallowed WordPress file types, unsafe filenames, detected PHP content, and restricted root `.htaccess` directives. Write, append, copy, and move validate complete content against the 10 MB limit. Their destinations cannot be inside `wp-admin` or `wp-includes`; move also protects core sources. File and directory deletion protect those core paths. All mutation abilities honor `DISALLOW_FILE_MODS`.
 
-## Changelog
+File reads default to 256 KB and allow at most 1 MB. A truncated read does not prove the remainder of a file is safe or unchanged. Content pattern checks do not establish that arbitrary file content is harmless.
 
-### 1.0.7
-- Update tested WordPress version metadata for Plugin Check.
-- Align public release identity with the Basicus author/contributor rule.
+Write, append, and file deletion allow callers to disable their default backup. Copy overwrite backs up the destination; move backs up the source and any overwritten destination. Required backup failure stops these operations. Directory deletion has no backup and supports explicit recursive deletion.
 
-### 1.0.6
-- Docs: expanded the WordPress-standard `readme.txt` so the published ZIP now includes fuller requirements, abilities, use cases, and Devenia ecosystem links
+Backups live under `wp-content/mcp-backups/YYYY-MM-DD/`; folders older than seven days are eligible for periodic cleanup. The operations log is `wp-content/mcp-filesystem.log` and includes paths, user details, client address, and supplied context. Hosting access rules determine whether these files can be served publicly. Keep sensitive data out of operation context and manage access to backups and logs. These backups are not a full-site recovery system.
 
-### 1.0.5
-- Added: `max_items` limit for safer recursive directory listing
-- Added: `returned` and `truncated` output fields for list-directory
+## Installation
 
-### 1.0.3
-- Improve log append efficiency for filesystem operations
+1. Meet the requirements and configure authenticated MCP access.
+2. [Download the plugin ZIP](https://downloads.devenia.com/mcp-abilities-filesystem.zip).
+3. In WordPress, use Plugins → Add New → Upload Plugin, then activate it.
+4. Discover the eleven filesystem abilities and try a read-only operation.
 
-### 1.0.2
-- Security: Restrict filesystem operations to the WordPress root directory
-- Fixed: Use WP_Filesystem for backups and copy operations
+## Recent Changes
 
-### 1.0.1
-- Fixed: Use WP_Filesystem API instead of native PHP functions
-- Fixed: Proper sanitization of REMOTE_ADDR
+### 1.0.10
+
+- Resolve destination paths and recursive directory parents before filesystem changes.
+- Allow permitted files and new directories directly under the WordPress root.
+- Apply content, size, secret-source, core-path, and backup checks consistently to copy and move.
+- Validate the complete result of append and prepend operations.
+- Protect exact core directories from deletion and honor disabled file modifications for directory creation and deletion.
+- Restore default root listing and keep recursive listing inside the resolved root.
+
+### 1.0.9
+
+- Fix operations logging after successful directory deletion.
 
 ## Contributing
 
-PRs welcome. Keep changes focused on the plugin's WordPress ability surface and preserve authenticated, explicit workflows.
+Submit focused changes with a reproduction through the registered ability and tests for the affected behavior. Keep schemas, permission checks, and documented limits consistent.
 
 ## License
 
-GPL-2.0+
+[GPLv2 or later](https://www.gnu.org/licenses/gpl-2.0.html).
 
 ## Author
 
@@ -222,18 +156,6 @@ GPL-2.0+
 
 ## Links
 
-- [Plugin Page](https://devenia.com/plugins/mcp-expose-abilities/#add-ons)
+- [Plugin page](https://devenia.com/plugins/mcp-abilities-filesystem/)
+- [Download](https://downloads.devenia.com/mcp-abilities-filesystem.zip)
 - [MCP Expose Abilities](https://devenia.com/plugins/mcp-expose-abilities/)
-- [GitHub Releases](https://github.com/bjornfix/mcp-abilities-filesystem/releases)
-
-## Star and Share
-
-If this plugin saves you time or makes WordPress maintenance easier to verify, please:
-
-- star the repo
-- share it with people running WordPress sites
-- point them to the main plugin page so they can see what the ecosystem can actually do
-
-Why do it?
-
-Because agent-friendly open WordPress tooling helps more of the boring but important work get done.

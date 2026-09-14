@@ -12,9 +12,9 @@ All eleven registered operations require an authenticated WordPress user with th
 
 ## Write and destination checks
 
-- File writes, appends, copies, and moves honor `DISALLOW_FILE_MODS`. The write guard also checks `DISALLOW_FILE_EDIT` for a PHP target.
+- All mutation abilities honor `DISALLOW_FILE_MODS`. The write guard also checks `DISALLOW_FILE_EDIT` for a PHP target.
 - The write guard rejects every PHP-like target extension, dangerous executable or script extensions, suspicious filenames, PHP double extensions, file types WordPress does not allow, PHP signatures hidden in other file types, and unsafe root `.htaccess` directives.
-- Write and append payloads are limited to 10 MB. Write and append also reject WordPress core files under `wp-admin` and `wp-includes`.
+- Complete write, append, copy, and move content is limited to 10 MB. Their destinations reject WordPress core files under `wp-admin` and `wp-includes`.
 - Move rejects a source under `wp-admin` or `wp-includes`. File and directory deletion reject those WordPress core locations, and file deletion also rejects root `wp-config.php`, `.htaccess`, and `index.php`.
 
 ## Backup and destructive action boundaries
@@ -28,3 +28,5 @@ All eleven registered operations require an authenticated WordPress user with th
 ## Operation audit
 
 Successful write, append, file deletion, directory deletion, copy, and move operations append an audit entry with time, operation, path, WordPress user, client address, and supplied context. Entries also include the backup, destination, or size change when the operation provides it. The changelog operation returns recent entries for inspection.
+
+Copy and move enforce the sensitive read-path restriction on the source and abort on required destination backup failure. Destination resolution checks symbolic links and existing ancestors. Recursive listings skip entries resolving outside the root. Backup and log HTTP access depends on hosting rules; these files can contain sensitive data.
