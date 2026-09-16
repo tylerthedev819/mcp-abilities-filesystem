@@ -3,7 +3,7 @@ Contributors: basicus
 Tags: mcp, filesystem, ai, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.0.10
+Stable tag: 1.0.11
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -45,12 +45,17 @@ Required backup failure stops the corresponding file change. Write, append, and 
 
 == Installation ==
 
+For update notifications in WordPress, install [Devenia MCP Updater](https://downloads.devenia.com/devenia-mcp-updater.zip). The updater is optional. You choose which plugins update automatically through WordPress.
+
 1. Configure the required MCP stack and authenticated access.
 2. Download the plugin from its public page.
 3. Upload the ZIP through Plugins > Add New > Upload Plugin and activate it.
 4. Discover the abilities and start with a directory listing or file read.
 
 == Changelog ==
+
+= 1.0.11 =
+* Add one dismissible Plugins-screen reminder when Devenia MCP Updater is missing or inactive, with persistent install or activate links. Automatic updates remain your choice in WordPress.
 
 = 1.0.10 =
 * Resolve destinations and recursive directory parents before changes.

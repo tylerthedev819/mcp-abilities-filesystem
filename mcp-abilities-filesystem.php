@@ -3,7 +3,7 @@
  * Plugin Name: MCP Abilities - Filesystem
  * Plugin URI: https://devenia.com/plugins/mcp-abilities-filesystem/
  * Description: Read, inspect, and manage permitted WordPress files through authenticated abilities with path, content, and backup checks.
- * Version: 1.0.10
+ * Version: 1.0.11
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0+
@@ -20,6 +20,9 @@ declare( strict_types=1 );
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
+
+require_once __DIR__ . '/includes/devenia-updater-notice.php';
+mcp_abilities_filesystem_Updater_Notice::register( __FILE__ );
 
 /**
  * Check if Abilities API is available.

@@ -2,12 +2,12 @@
 
 Inspect WordPress files, update a permitted text file, and check the recorded change from your MCP client. This add-on provides eleven administrator-only abilities for file and directory work inside the WordPress root.
 
-[![Release 1.0.10](https://img.shields.io/badge/release-1.0.10-blue.svg)](https://downloads.devenia.com/mcp-abilities-filesystem.zip)
+[![Release 1.0.11](https://img.shields.io/badge/release-1.0.11-blue.svg)](https://downloads.devenia.com/mcp-abilities-filesystem.zip)
 [![License GPLv2 or later](https://img.shields.io/badge/license-GPLv2%2B-blue.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
 [![WordPress 6.9+](https://img.shields.io/badge/WordPress-6.9%2B-blue.svg)](https://wordpress.org/download/)
 [![PHP 8.0+](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://www.php.net/downloads.php)
 
-**Stable tag:** 1.0.10
+**Stable tag:** 1.0.11
 **Tested up to:** WordPress 7.1 (7.1-RC3)
 **License:** GPLv2 or later
 **Tags:** mcp, filesystem, ai, automation
@@ -122,12 +122,20 @@ Backups live under `wp-content/mcp-backups/YYYY-MM-DD/`; folders older than seve
 
 ## Installation
 
+
+For update notifications in WordPress, install [Devenia MCP Updater](https://downloads.devenia.com/devenia-mcp-updater.zip). The updater is optional. You choose which plugins update automatically through WordPress.
+
 1. Meet the requirements and configure authenticated MCP access.
 2. [Download the plugin ZIP](https://downloads.devenia.com/mcp-abilities-filesystem.zip).
 3. In WordPress, use Plugins → Add New → Upload Plugin, then activate it.
 4. Discover the eleven filesystem abilities and try a read-only operation.
 
 ## Recent Changes
+
+
+### 1.0.11
+
+Add one dismissible Plugins-screen reminder when Devenia MCP Updater is missing or inactive, with persistent install or activate links. Automatic updates remain your choice in WordPress.
 
 ### 1.0.10
 
