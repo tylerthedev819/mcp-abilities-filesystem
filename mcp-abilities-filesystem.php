@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: MCP Abilities - Filesystem
- * Plugin URI: https://github.com/bjornfix/mcp-abilities-filesystem
- * Description: Filesystem abilities for MCP. Read, write, copy, move, and delete files within WordPress. Security-hardened with PHP injection detection.
- * Version: 1.1.0
- * Author: Devenia
- * Author URI: https://devenia.com
+ * Plugin URI: https://devenia.com/plugins/mcp-abilities-filesystem/
+ * Description: Read, inspect, and manage permitted WordPress files through authenticated abilities with path, content, and backup checks.
+ * Version: 1.2.0
+ * Author: basicus
+ * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0+
  * License URI: http://www.gnu.org/licenses/gpl-2.0.txt
  * Requires at least: 6.9
@@ -20,6 +20,9 @@ declare( strict_types=1 );
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
+
+// Fork: the upstream Devenia updater notice is not loaded. Its updater would replace
+// this fork with the upstream build (which blocks PHP writes and stores backups in wp-content).
 
 /**
  * Directory for backups and the operation log, kept outside the web root.
@@ -44,16 +47,15 @@ function mcp_filesystem_storage_dir(): string {
 
 /**
  * Check if Abilities API is available.
- *
-*/
+ */
 function mcp_filesystem_check_dependencies(): bool {
-    if ( ! function_exists( 'wp_register_ability' ) ) {
-        add_action( 'admin_notices', function () {
-            echo '<div class="notice notice-error"><p><strong>MCP Abilities - Filesystem</strong> requires the <a href="https://github.com/WordPress/abilities-api">Abilities API</a> plugin to be installed and activated.</p></div>';
-        } );
-        return false;
-    }
-    return true;
+	if ( ! function_exists( 'wp_register_ability' ) ) {
+		add_action( 'admin_notices', function () {
+			echo '<div class="notice notice-error"><p><strong>MCP Abilities - Filesystem</strong> requires WordPress 6.9 or newer with the built-in Abilities API available.</p></div>';
+		} );
+		return false;
+	}
+	return true;
 }
 
 /**
@@ -198,6 +200,22 @@ function mcp_register_filesystem_abilities(): void {
 		}
 	};
 
+	$mcp_modifications_disabled = function (): bool {
+		return defined( 'DISALLOW_FILE_MODS' ) && DISALLOW_FILE_MODS;
+	};
+
+	$mcp_is_core_path = function ( string $path ): bool {
+		$root = rtrim( wp_normalize_path( realpath( ABSPATH ) ), '/' );
+		$path = rtrim( wp_normalize_path( $path ), '/' );
+		foreach ( array( 'wp-admin', 'wp-includes' ) as $directory ) {
+			$core = $root . '/' . $directory;
+			if ( $path === $core || strpos( $path, $core . '/' ) === 0 ) {
+				return true;
+			}
+		}
+		return false;
+	};
+
 	/**
 	 * Check if a file write should be blocked for security reasons.
 	 *
@@ -206,9 +224,12 @@ function mcp_register_filesystem_abilities(): void {
 	 * @param int    $size    Optional content size in bytes.
 	 * @return string|false Error message if blocked, false if allowed.
 	 */
-	$mcp_check_write_security = function ( string $path, string $content = '', int $size = 0 ): string|false {
+	$mcp_check_write_security = function ( string $path, string $content = '', int $size = 0 ) use ( $mcp_is_core_path, $mcp_modifications_disabled ): string|false {
+		if ( $mcp_is_core_path( $path ) ) {
+			return 'Cannot modify WordPress core files.';
+		}
 		// Respect WordPress DISALLOW_FILE_EDIT and DISALLOW_FILE_MODS constants.
-		if ( defined( 'DISALLOW_FILE_MODS' ) && DISALLOW_FILE_MODS ) {
+		if ( $mcp_modifications_disabled() ) {
 			return 'File modifications are disabled by DISALLOW_FILE_MODS constant.';
 		}
 
@@ -244,6 +265,9 @@ function mcp_register_filesystem_abilities(): void {
 		if ( in_array( $extension, $dangerous_anywhere, true ) ) {
 			return "Cannot write files with .{$extension} extension.";
 		}
+
+		// Fork: the upstream block on PHP-like extensions is removed on purpose so PHP files
+		// can be written. See the .php early return before the content scans.
 
 		// Block .htaccess in subdirectories (only allow in document root).
 		if ( 'htaccess' === $extension && $filename === '.htaccess' ) {
@@ -286,6 +310,13 @@ function mcp_register_filesystem_abilities(): void {
 		// Block double extensions that could be used to bypass filters.
 		if ( preg_match( '/\.(php|phtml|phar)\.[^.]+$/i', $filename ) ) {
 			return 'Double extensions with PHP are not allowed (e.g., file.php.jpg).';
+		}
+
+		// Fork: real .php files are allowed to contain PHP, so they skip the two content scans
+		// below. Every other type (including phtml/php5/etc.) is still scanned, so PHP can't hide
+		// in a .txt, .css, or image. Path, core, size, filename, and DISALLOW_* checks above still apply.
+		if ( 'php' === $extension ) {
+			return false;
 		}
 
 		// Content scanning for PHP files.
@@ -364,10 +395,70 @@ function mcp_register_filesystem_abilities(): void {
 	 * @param string $path Absolute path to validate.
 	 * @return bool True if inside WordPress root.
 	 */
-	$mcp_is_path_in_wp_root = function ( string $path ) use ( $mcp_get_wp_root ): bool {
-		$path = wp_normalize_path( $path );
-		return strpos( $path, $mcp_get_wp_root() ) === 0;
+		$mcp_is_path_in_wp_root = function ( string $path, bool $allow_root = false ) use ( $mcp_get_wp_root ): bool {
+			$path = wp_normalize_path( $path );
+			return strpos( $path, $mcp_get_wp_root() ) === 0 || ( $allow_root && $path === rtrim( $mcp_get_wp_root(), '/' ) );
+		};
+
+	/** Resolve a target through its nearest existing canonical parent. */
+	$mcp_resolve_destination = function ( string $path, bool $recursive = false ) use ( $mcp_is_path_in_wp_root ): string|false {
+		if ( file_exists( $path ) || is_link( $path ) ) {
+			$resolved = realpath( $path );
+		} else {
+			$ancestor = dirname( $path );
+			$segments = array( basename( $path ) );
+			while ( $recursive && ! file_exists( $ancestor ) && ! is_link( $ancestor ) && dirname( $ancestor ) !== $ancestor ) {
+				array_unshift( $segments, basename( $ancestor ) );
+				$ancestor = dirname( $ancestor );
+			}
+			if ( array_intersect( array( '.', '..', '' ), $segments ) ) {
+				return false;
+			}
+			$parent = realpath( $ancestor );
+			$resolved = false === $parent || ! is_dir( $parent ) ? false : $parent . '/' . implode( '/', $segments );
+		}
+		if ( false === $resolved || ! $mcp_is_path_in_wp_root( $resolved ) || is_dir( $resolved ) ) {
+			return false;
+		}
+		return $resolved;
 	};
+
+		/**
+		 * Block reads of sensitive config/secret files.
+		 *
+		 * @param string $full_path Absolute normalized path.
+		 * @return bool
+		 */
+		$mcp_is_sensitive_read_path = function ( string $full_path ): bool {
+			$normalized = strtolower( wp_normalize_path( $full_path ) );
+			$basename   = basename( $normalized );
+
+			$blocked_exact = array(
+				strtolower( wp_normalize_path( ABSPATH . 'wp-config.php' ) ),
+			);
+			if ( in_array( $normalized, $blocked_exact, true ) ) {
+				return true;
+			}
+
+			$blocked_names = array(
+				'.env',
+				'.env.local',
+				'.env.production',
+				'.env.development',
+				'id_rsa',
+				'id_dsa',
+				'authorized_keys',
+			);
+			if ( in_array( $basename, $blocked_names, true ) ) {
+				return true;
+			}
+
+			if ( preg_match( '/\.(key|pem|p12|pfx|crt)$/i', $basename ) ) {
+				return true;
+			}
+
+			return false;
+		};
 
 	// =========================================================================
 	// FILESYSTEM - Get Changelog
@@ -441,13 +532,13 @@ function mcp_register_filesystem_abilities(): void {
 				return current_user_can( 'manage_options' );
 			},
 			'meta'                => array(
-			'mcp' => array( 'public' => true, 'type' => 'tool' ),
-			'annotations' => array(
-				'readonly'    => true,
-				'destructive' => false,
-				'idempotent'  => true,
+				'mcp'         => array( 'public' => true, 'type' => 'tool' ),
+				'annotations' => array(
+					'readonly'    => true,
+					'destructive' => false,
+					'idempotent'  => true,
+				),
 			),
-		),
 		)
 	);
 
@@ -463,11 +554,18 @@ function mcp_register_filesystem_abilities(): void {
 			'input_schema'        => array(
 				'type'                 => 'object',
 				'properties'           => array(
-					'path' => array(
-						'type'        => 'string',
-						'description' => 'File path (absolute or relative to WordPress root).',
+						'path' => array(
+							'type'        => 'string',
+							'description' => 'File path (absolute or relative to WordPress root).',
+						),
+						'max_bytes' => array(
+							'type'        => 'integer',
+							'default'     => 262144,
+							'minimum'     => 1,
+							'maximum'     => 1048576,
+							'description' => 'Maximum allowed file size to read (default 256KB, max 1MB).',
+						),
 					),
-				),
 				'required'             => array( 'path' ),
 				'additionalProperties' => false,
 			),
@@ -482,8 +580,8 @@ function mcp_register_filesystem_abilities(): void {
 					'message'  => array( 'type' => 'string' ),
 				),
 			),
-			'execute_callback'    => function ( array $input ) use ( $mcp_is_path_in_wp_root ): array {
-				$path = $input['path'] ?? '';
+				'execute_callback'    => function ( array $input ) use ( $mcp_is_path_in_wp_root, $mcp_is_sensitive_read_path ): array {
+					$path = $input['path'] ?? '';
 
 				if ( empty( $path ) ) {
 					return array(
@@ -514,12 +612,31 @@ function mcp_register_filesystem_abilities(): void {
 					);
 				}
 
-				if ( ! is_file( $full_path ) ) {
-					return array(
-						'success' => false,
-						'message' => 'Path is not a file: ' . $input['path'],
-					);
-				}
+					if ( ! is_file( $full_path ) ) {
+						return array(
+							'success' => false,
+							'message' => 'Path is not a file: ' . $input['path'],
+						);
+					}
+
+					// Fork: read-file may read wp-config.php, .env, and key files. The sensitive-path
+					// check still applies to copy/move so secrets can't be copied somewhere web-served.
+
+					$file_size = filesize( $full_path );
+					if ( false === $file_size ) {
+						return array(
+							'success' => false,
+							'message' => 'Failed to stat file size: ' . $input['path'],
+						);
+					}
+					$max_bytes = isset( $input['max_bytes'] ) ? (int) $input['max_bytes'] : 262144;
+					$max_bytes = max( 1, min( 1048576, $max_bytes ) );
+					if ( $file_size > $max_bytes ) {
+						return array(
+							'success' => false,
+							'message' => "File is too large to read safely ({$file_size} bytes). Increase max_bytes up to 1048576 if needed.",
+						);
+					}
 
 				// Initialize WP_Filesystem.
 				global $wp_filesystem;
@@ -544,14 +661,14 @@ function mcp_register_filesystem_abilities(): void {
 					);
 				}
 
-				return array(
-					'success'  => true,
-					'content'  => $content,
-					'path'     => $full_path,
-					'size'     => filesize( $full_path ),
-					'modified' => gmdate( 'Y-m-d H:i:s', filemtime( $full_path ) ),
-				);
-			},
+					return array(
+						'success'  => true,
+						'content'  => $content,
+						'path'     => $full_path,
+						'size'     => $file_size,
+						'modified' => gmdate( 'Y-m-d H:i:s', filemtime( $full_path ) ),
+					);
+				},
 			'permission_callback' => function (): bool {
 				return current_user_can( 'manage_options' );
 			},
@@ -609,7 +726,7 @@ function mcp_register_filesystem_abilities(): void {
 					'bytes'       => array( 'type' => 'integer' ),
 				),
 			),
-			'execute_callback'    => function ( array $input ) use ( $mcp_create_backup, $mcp_log_filesystem_operation, $mcp_check_write_security, $mcp_is_path_in_wp_root ): array {
+			'execute_callback'    => function ( array $input ) use ( $mcp_create_backup, $mcp_log_filesystem_operation, $mcp_check_write_security, $mcp_resolve_destination ): array {
 				$path    = $input['path'] ?? '';
 				$content = $input['content'] ?? '';
 				$backup  = $input['backup'] ?? true;
@@ -636,22 +753,9 @@ function mcp_register_filesystem_abilities(): void {
 					);
 				}
 
-				$real_dir = realpath( $dir );
-
-				if ( ! $mcp_is_path_in_wp_root( $real_dir ) ) {
-					return array(
-						'success' => false,
-						'message' => 'Access denied. File must be within the WordPress root directory.',
-					);
-				}
-
-				$full_path_normalized = $real_dir . '/' . basename( $full_path );
-				if ( strpos( $full_path_normalized, ABSPATH . 'wp-includes/' ) === 0 ||
-					strpos( $full_path_normalized, ABSPATH . 'wp-admin/' ) === 0 ) {
-					return array(
-						'success' => false,
-						'message' => 'Cannot modify WordPress core files in wp-includes or wp-admin.',
-					);
+				$full_path_normalized = $mcp_resolve_destination( $full_path );
+				if ( false === $full_path_normalized ) {
+					return array( 'success' => false, 'message' => 'Access denied. File must be within the WordPress root directory.' );
 				}
 
 				$security_error = $mcp_check_write_security( $full_path_normalized, $content, strlen( $content ) );
@@ -714,7 +818,7 @@ function mcp_register_filesystem_abilities(): void {
 				return current_user_can( 'manage_options' );
 			},
 			'meta'                => array(
-				'mcp' => array('public' => true, 'type' => 'tool'),
+				'mcp'         => array( 'public' => true, 'type' => 'tool' ),
 				'annotations' => array(
 					'readonly'    => false,
 					'destructive' => true,
@@ -808,34 +912,6 @@ function mcp_register_filesystem_abilities(): void {
 					);
 				}
 
-				if ( strpos( $full_path, ABSPATH . 'wp-includes/' ) === 0 ||
-					strpos( $full_path, ABSPATH . 'wp-admin/' ) === 0 ) {
-					return array(
-						'success' => false,
-						'message' => 'Cannot modify WordPress core files.',
-					);
-				}
-
-				$security_error = $mcp_check_write_security( $full_path, $content, strlen( $content ) );
-				if ( $security_error ) {
-					return array(
-						'success' => false,
-						'message' => $security_error,
-					);
-				}
-
-				$backup_path = null;
-				$size_before = filesize( $full_path );
-
-				if ( $backup ) {
-					$backup_path = $mcp_create_backup( $full_path );
-					if ( false === $backup_path ) {
-						return array(
-							'success' => false,
-							'message' => 'Failed to create backup.',
-						);
-					}
-				}
 
 				global $wp_filesystem;
 				if ( ! function_exists( 'WP_Filesystem' ) ) {
@@ -852,6 +928,24 @@ function mcp_register_filesystem_abilities(): void {
 				}
 
 				$new_content = $prepend ? $content . $existing : $existing . $content;
+				$security_error = $mcp_check_write_security( $full_path, $new_content, strlen( $new_content ) );
+				if ( $security_error ) {
+					return array( 'success' => false, 'message' => $security_error );
+				}
+
+				$backup_path = null;
+				$size_before = filesize( $full_path );
+
+				if ( $backup ) {
+					$backup_path = $mcp_create_backup( $full_path );
+					if ( false === $backup_path ) {
+						return array(
+							'success' => false,
+							'message' => 'Failed to create backup.',
+						);
+					}
+				}
+
 				$written     = $wp_filesystem->put_contents( $full_path, $new_content, FS_CHMOD_FILE );
 
 				if ( ! $written ) {
@@ -888,7 +982,7 @@ function mcp_register_filesystem_abilities(): void {
 				return current_user_can( 'manage_options' );
 			},
 			'meta'                => array(
-				'mcp' => array('public' => true, 'type' => 'tool'),
+				'mcp'         => array( 'public' => true, 'type' => 'tool' ),
 				'annotations' => array(
 					'readonly'    => false,
 					'destructive' => true,
@@ -920,11 +1014,22 @@ function mcp_register_filesystem_abilities(): void {
 						'default'     => false,
 						'description' => 'Include subdirectories recursively (max 2 levels deep).',
 					),
-					'pattern'   => array(
-						'type'        => 'string',
-						'description' => 'Filter files by pattern (e.g., "*.php", "*.js").',
+					'max_depth' => array(
+						'type'        => 'integer',
+						'description' => 'Max recursion depth when recursive is true (default 2, max 8).',
 					),
-				),
+						'pattern'   => array(
+							'type'        => 'string',
+							'description' => 'Filter files by pattern (e.g., "*.php", "*.js").',
+						),
+						'max_items' => array(
+							'type'        => 'integer',
+							'default'     => 1000,
+							'minimum'     => 1,
+							'maximum'     => 5000,
+							'description' => 'Maximum number of items to return before truncating.',
+						),
+					),
 				'required'             => array(),
 				'additionalProperties' => false,
 			),
@@ -946,13 +1051,19 @@ function mcp_register_filesystem_abilities(): void {
 							),
 						),
 					),
-					'message' => array( 'type' => 'string' ),
+						'message' => array( 'type' => 'string' ),
+						'returned' => array( 'type' => 'integer' ),
+						'truncated' => array( 'type' => 'boolean' ),
+					),
 				),
-			),
-			'execute_callback'    => function ( array $input ) use ( $mcp_is_path_in_wp_root ): array {
-				$path      = $input['path'] ?? '.';
-				$recursive = $input['recursive'] ?? false;
-				$pattern   = $input['pattern'] ?? null;
+				'execute_callback'    => function ( array $input ) use ( $mcp_is_path_in_wp_root ): array {
+					$path      = $input['path'] ?? '.';
+					$recursive = $input['recursive'] ?? false;
+					$pattern   = $input['pattern'] ?? null;
+					$max_depth = isset( $input['max_depth'] ) ? (int) $input['max_depth'] : 2;
+					$max_depth = max( 1, min( 8, $max_depth ) );
+					$max_items = isset( $input['max_items'] ) ? (int) $input['max_items'] : 1000;
+					$max_items = max( 1, min( 5000, $max_items ) );
 
 				if ( '.' === $path || empty( $path ) ) {
 					$full_path = ABSPATH;
@@ -971,7 +1082,7 @@ function mcp_register_filesystem_abilities(): void {
 					);
 				}
 
-				if ( ! $mcp_is_path_in_wp_root( $full_path ) ) {
+				if ( ! $mcp_is_path_in_wp_root( $full_path, true ) ) {
 					return array(
 						'success' => false,
 						'message' => 'Access denied. Directory must be within the WordPress root directory.',
@@ -985,20 +1096,30 @@ function mcp_register_filesystem_abilities(): void {
 					);
 				}
 
-				$items = array();
+					$items = array();
+					$truncated = false;
 
-				$list_dir = function ( $dir, $depth = 0 ) use ( &$list_dir, &$items, $recursive, $pattern ) {
-					if ( $depth > 2 ) {
-						return;
-					}
-
-					$files = scandir( $dir );
-					foreach ( $files as $file ) {
-						if ( '.' === $file || '..' === $file ) {
-							continue;
+					$list_dir = function ( $dir, $depth = 0 ) use ( &$list_dir, &$items, &$truncated, $recursive, $pattern, $max_depth, $max_items, $mcp_is_path_in_wp_root ) {
+						if ( $depth > $max_depth ) {
+							return;
 						}
 
+					$files = scandir( $dir );
+						foreach ( $files as $file ) {
+							if ( count( $items ) >= $max_items ) {
+								$truncated = true;
+								return;
+							}
+
+							if ( '.' === $file || '..' === $file ) {
+								continue;
+							}
+
 						$file_path = $dir . '/' . $file;
+						$canonical_path = realpath( $file_path );
+						if ( false === $canonical_path || ! $mcp_is_path_in_wp_root( $canonical_path ) ) {
+							continue;
+						}
 
 						if ( $pattern && ! fnmatch( $pattern, $file ) && is_file( $file_path ) ) {
 							continue;
@@ -1013,25 +1134,31 @@ function mcp_register_filesystem_abilities(): void {
 							'path'     => $file_path,
 						);
 
-						if ( $recursive && $is_dir ) {
-							$list_dir( $file_path, $depth + 1 );
+							if ( $recursive && $is_dir ) {
+								$list_dir( $file_path, $depth + 1 );
+								if ( $truncated ) {
+									return;
+								}
+							}
 						}
-					}
-				};
+					};
 
 				$list_dir( $full_path );
 
-				return array(
-					'success' => true,
-					'path'    => $full_path,
-					'items'   => $items,
-				);
-			},
+					return array(
+						'success'   => true,
+						'path'      => $full_path,
+						'items'     => $items,
+						'returned'  => count( $items ),
+						'truncated' => $truncated,
+						'message'   => $truncated ? 'Result truncated at max_items limit.' : 'Directory listed successfully.',
+					);
+				},
 			'permission_callback' => function (): bool {
 				return current_user_can( 'manage_options' );
 			},
 			'meta'                => array(
-				'mcp' => array('public' => true, 'type' => 'tool'),
+				'mcp'         => array( 'public' => true, 'type' => 'tool' ),
 				'annotations' => array(
 					'readonly'    => true,
 					'destructive' => false,
@@ -1078,7 +1205,11 @@ function mcp_register_filesystem_abilities(): void {
 					'backup_path' => array( 'type' => 'string' ),
 				),
 			),
-			'execute_callback'    => function ( array $input ) use ( $mcp_create_backup, $mcp_log_filesystem_operation, $mcp_is_path_in_wp_root ): array {
+			'execute_callback'    => function ( array $input ) use ( $mcp_modifications_disabled, $mcp_is_core_path, $mcp_create_backup, $mcp_log_filesystem_operation, $mcp_is_path_in_wp_root ): array {
+				if ( $mcp_modifications_disabled() ) {
+					return array( 'success' => false, 'message' => 'File modifications are disabled by DISALLOW_FILE_MODS constant.' );
+				}
+
 				$path    = $input['path'] ?? '';
 				$backup  = $input['backup'] ?? true;
 				$context = $input['context'] ?? '';
@@ -1119,8 +1250,7 @@ function mcp_register_filesystem_abilities(): void {
 					);
 				}
 
-				if ( strpos( $full_path, ABSPATH . 'wp-includes/' ) === 0 ||
-					strpos( $full_path, ABSPATH . 'wp-admin/' ) === 0 ) {
+				if ( $mcp_is_core_path( $full_path ) ) {
 					return array(
 						'success' => false,
 						'message' => 'Cannot delete WordPress core files.',
@@ -1177,7 +1307,133 @@ function mcp_register_filesystem_abilities(): void {
 				return current_user_can( 'manage_options' );
 			},
 			'meta'                => array(
-				'mcp' => array('public' => true, 'type' => 'tool'),
+				'mcp'         => array( 'public' => true, 'type' => 'tool' ),
+				'annotations' => array(
+					'readonly'    => false,
+					'destructive' => true,
+					'idempotent'  => false,
+				),
+			),
+		)
+	);
+
+	// =========================================================================
+	// FILESYSTEM - Delete Directory
+	// =========================================================================
+	wp_register_ability(
+		'filesystem/delete-directory',
+		array(
+			'label'               => 'Delete Directory',
+			'description'         => '[FILESYSTEM] Deletes a directory. DESTRUCTIVE. Recursive delete optional.',
+			'category'            => 'site',
+			'input_schema'        => array(
+				'type'                 => 'object',
+				'required'             => array( 'path' ),
+				'properties'           => array(
+					'path'      => array(
+						'type'        => 'string',
+						'description' => 'Directory path to delete.',
+					),
+					'recursive' => array(
+						'type'        => 'boolean',
+						'default'     => false,
+						'description' => 'Delete recursively (default false).',
+					),
+					'context'   => array(
+						'type'        => 'string',
+						'description' => 'Brief description of why this directory is being deleted.',
+					),
+				),
+				'additionalProperties' => false,
+			),
+			'output_schema'       => array(
+				'type'       => 'object',
+				'properties' => array(
+					'success' => array( 'type' => 'boolean' ),
+					'message' => array( 'type' => 'string' ),
+				),
+			),
+			'execute_callback'    => function ( array $input ) use ( $mcp_modifications_disabled, $mcp_is_core_path, $mcp_log_filesystem_operation, $mcp_is_path_in_wp_root ): array {
+				if ( $mcp_modifications_disabled() ) {
+					return array( 'success' => false, 'message' => 'File modifications are disabled by DISALLOW_FILE_MODS constant.' );
+				}
+
+				$path      = $input['path'] ?? '';
+				$recursive = ! empty( $input['recursive'] );
+				$context   = $input['context'] ?? '';
+
+				if ( empty( $path ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Path is required.',
+					);
+				}
+
+				if ( strpos( $path, '/' ) !== 0 ) {
+					$full_path = ABSPATH . $path;
+				} else {
+					$full_path = $path;
+				}
+
+				$full_path = realpath( $full_path );
+
+				if ( false === $full_path || ! file_exists( $full_path ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Directory not found.',
+					);
+				}
+
+				if ( ! $mcp_is_path_in_wp_root( $full_path ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Access denied. Directory must be within the WordPress root directory.',
+					);
+				}
+
+				if ( ! is_dir( $full_path ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Path is not a directory.',
+					);
+				}
+
+				if ( $mcp_is_core_path( $full_path ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Cannot delete WordPress core directories.',
+					);
+				}
+
+				global $wp_filesystem;
+				if ( ! function_exists( 'WP_Filesystem' ) ) {
+					require_once ABSPATH . 'wp-admin/includes/file.php';
+				}
+				WP_Filesystem();
+
+				$deleted = $wp_filesystem->delete( $full_path, $recursive, 'd' );
+				if ( ! $deleted ) {
+					return array(
+						'success' => false,
+						'message' => 'Failed to delete directory.',
+					);
+				}
+
+				$mcp_log_filesystem_operation( 'DELETE_DIRECTORY', $full_path, array(
+					'recursive' => $recursive,
+					'context'   => $context,
+				) );
+
+				return array(
+					'success' => true,
+					'message' => 'Directory deleted successfully.',
+				);
+			},
+			'permission_callback' => function (): bool {
+				return current_user_can( 'manage_options' );
+			},
+			'meta'                => array(
+				'mcp'         => array( 'public' => true, 'type' => 'tool' ),
 				'annotations' => array(
 					'readonly'    => false,
 					'destructive' => true,
@@ -1250,7 +1506,7 @@ function mcp_register_filesystem_abilities(): void {
 					);
 				}
 
-				if ( ! $mcp_is_path_in_wp_root( $full_path ) ) {
+				if ( ! $mcp_is_path_in_wp_root( $full_path, true ) ) {
 					return array(
 						'success' => false,
 						'message' => 'Access denied. Path must be within the WordPress root directory.',
@@ -1285,7 +1541,7 @@ function mcp_register_filesystem_abilities(): void {
 				return current_user_can( 'manage_options' );
 			},
 			'meta'                => array(
-				'mcp' => array('public' => true, 'type' => 'tool'),
+				'mcp'         => array( 'public' => true, 'type' => 'tool' ),
 				'annotations' => array(
 					'readonly'    => true,
 					'destructive' => false,
@@ -1333,7 +1589,11 @@ function mcp_register_filesystem_abilities(): void {
 					'path'    => array( 'type' => 'string' ),
 				),
 			),
-			'execute_callback'    => function ( array $input ) use ( $mcp_is_path_in_wp_root ): array {
+			'execute_callback'    => function ( array $input ) use ( $mcp_modifications_disabled, $mcp_resolve_destination ): array {
+				if ( $mcp_modifications_disabled() ) {
+					return array( 'success' => false, 'message' => 'File modifications are disabled by DISALLOW_FILE_MODS constant.' );
+				}
+
 				$path        = $input['path'] ?? '';
 				$permissions = octdec( $input['permissions'] ?? '0755' );
 				$recursive   = $input['recursive'] ?? true;
@@ -1345,42 +1605,15 @@ function mcp_register_filesystem_abilities(): void {
 					);
 				}
 
-				// A missing parent can't be realpath'd, so "wp-content/../../x" would slip past the root check below.
-				if ( preg_match( '#(^|/)\.\.(/|$)#', $path ) ) {
-					return array(
-						'success' => false,
-						'message' => 'Access denied. Path must not contain ".." segments.',
-					);
-				}
-
 				if ( strpos( $path, '/' ) !== 0 ) {
 					$full_path = ABSPATH . $path;
 				} else {
 					$full_path = $path;
 				}
 
-				$parent = dirname( $full_path );
-				$real_parent = realpath( $parent );
-
-				if ( false === $real_parent && ! $recursive ) {
-					return array(
-						'success' => false,
-						'message' => 'Parent directory does not exist.',
-					);
-				}
-
-				if ( $real_parent && ! $mcp_is_path_in_wp_root( $real_parent ) ) {
-					return array(
-						'success' => false,
-						'message' => 'Access denied. Path must be within the WordPress root directory.',
-					);
-				}
-
-				if ( ! $real_parent && ! $mcp_is_path_in_wp_root( $full_path ) ) {
-					return array(
-						'success' => false,
-						'message' => 'Access denied. Path must be within the WordPress root directory.',
-					);
+				$full_path = $mcp_resolve_destination( $full_path, $recursive );
+				if ( false === $full_path ) {
+					return array( 'success' => false, 'message' => 'Destination must be a new path within the WordPress root directory.' );
 				}
 
 				if ( file_exists( $full_path ) ) {
@@ -1420,7 +1653,7 @@ function mcp_register_filesystem_abilities(): void {
 				return current_user_can( 'manage_options' );
 			},
 			'meta'                => array(
-				'mcp' => array('public' => true, 'type' => 'tool'),
+				'mcp'         => array( 'public' => true, 'type' => 'tool' ),
 				'annotations' => array(
 					'readonly'    => false,
 					'destructive' => false,
@@ -1473,7 +1706,7 @@ function mcp_register_filesystem_abilities(): void {
 					'backup_path' => array( 'type' => 'string' ),
 				),
 			),
-			'execute_callback'    => function ( array $input ) use ( $mcp_create_backup, $mcp_log_filesystem_operation, $mcp_check_write_security, $mcp_is_path_in_wp_root ): array {
+			'execute_callback'    => function ( array $input ) use ( $mcp_create_backup, $mcp_log_filesystem_operation, $mcp_check_write_security, $mcp_is_path_in_wp_root, $mcp_resolve_destination, $mcp_is_sensitive_read_path ): array {
 				$source    = $input['source'] ?? '';
 				$dest      = $input['dest'] ?? '';
 				$overwrite = $input['overwrite'] ?? false;
@@ -1505,17 +1738,23 @@ function mcp_register_filesystem_abilities(): void {
 					);
 				}
 
-				$dest_dir = realpath( dirname( $dest_path ) );
-				if ( false === $dest_dir || ! $mcp_is_path_in_wp_root( $dest_dir ) ) {
-					return array(
-						'success' => false,
-						'message' => 'Destination access denied. Path must be within the WordPress root directory.',
-					);
+				$final_dest = $mcp_resolve_destination( $dest_path );
+				if ( false === $final_dest ) {
+					return array( 'success' => false, 'message' => 'Destination access denied. Path must be within the WordPress root directory.' );
 				}
-
-				$final_dest = $dest_dir . '/' . basename( $dest_path );
-
-				$security_error = $mcp_check_write_security( $final_dest );
+				if ( $mcp_is_sensitive_read_path( $source_path ) || ! is_file( $source_path ) ) {
+					return array( 'success' => false, 'message' => 'Source access denied.' );
+				}
+				global $wp_filesystem;
+				if ( ! function_exists( 'WP_Filesystem' ) ) {
+					require_once ABSPATH . 'wp-admin/includes/file.php';
+				}
+				WP_Filesystem();
+				$source_content = $wp_filesystem->get_contents( $source_path );
+				if ( false === $source_content ) {
+					return array( 'success' => false, 'message' => 'Failed to read source file.' );
+				}
+				$security_error = $mcp_check_write_security( $final_dest, $source_content, strlen( $source_content ) );
 				if ( $security_error ) {
 					return array(
 						'success' => false,
@@ -1533,14 +1772,10 @@ function mcp_register_filesystem_abilities(): void {
 						);
 					}
 					$backup_path = $mcp_create_backup( $final_dest );
+					if ( false === $backup_path ) {
+						return array( 'success' => false, 'message' => 'Failed to create destination backup.' );
+					}
 				}
-
-				// Initialize WP_Filesystem.
-				global $wp_filesystem;
-				if ( ! function_exists( 'WP_Filesystem' ) ) {
-					require_once ABSPATH . 'wp-admin/includes/file.php';
-				}
-				WP_Filesystem();
 
 				if ( ! $wp_filesystem->copy( $source_path, $final_dest, $overwrite, FS_CHMOD_FILE ) ) {
 					return array(
@@ -1572,7 +1807,7 @@ function mcp_register_filesystem_abilities(): void {
 				return current_user_can( 'manage_options' );
 			},
 			'meta'                => array(
-				'mcp' => array('public' => true, 'type' => 'tool'),
+				'mcp'         => array( 'public' => true, 'type' => 'tool' ),
 				'annotations' => array(
 					'readonly'    => false,
 					'destructive' => false,
@@ -1626,7 +1861,7 @@ function mcp_register_filesystem_abilities(): void {
 					'dest_backup_path'   => array( 'type' => 'string' ),
 				),
 			),
-			'execute_callback'    => function ( array $input ) use ( $mcp_create_backup, $mcp_log_filesystem_operation, $mcp_check_write_security, $mcp_is_path_in_wp_root ): array {
+			'execute_callback'    => function ( array $input ) use ( $mcp_is_core_path, $mcp_create_backup, $mcp_log_filesystem_operation, $mcp_check_write_security, $mcp_is_path_in_wp_root, $mcp_resolve_destination, $mcp_is_sensitive_read_path ): array {
 				$source    = $input['source'] ?? '';
 				$dest      = $input['dest'] ?? '';
 				$overwrite = $input['overwrite'] ?? false;
@@ -1658,25 +1893,30 @@ function mcp_register_filesystem_abilities(): void {
 					);
 				}
 
-				if ( strpos( $source_path, ABSPATH . 'wp-includes/' ) === 0 ||
-					strpos( $source_path, ABSPATH . 'wp-admin/' ) === 0 ) {
+				if ( $mcp_is_core_path( $source_path ) ) {
 					return array(
 						'success' => false,
 						'message' => 'Cannot move WordPress core files.',
 					);
 				}
 
-				$dest_dir = realpath( dirname( $dest_path ) );
-				if ( false === $dest_dir || ! $mcp_is_path_in_wp_root( $dest_dir ) ) {
-					return array(
-						'success' => false,
-						'message' => 'Destination access denied. Path must be within the WordPress root directory.',
-					);
+				$final_dest = $mcp_resolve_destination( $dest_path );
+				if ( false === $final_dest ) {
+					return array( 'success' => false, 'message' => 'Destination access denied. Path must be within the WordPress root directory.' );
 				}
-
-				$final_dest = $dest_dir . '/' . basename( $dest_path );
-
-				$security_error = $mcp_check_write_security( $final_dest );
+				if ( $mcp_is_sensitive_read_path( $source_path ) || ! is_file( $source_path ) ) {
+					return array( 'success' => false, 'message' => 'Source access denied.' );
+				}
+				global $wp_filesystem;
+				if ( ! function_exists( 'WP_Filesystem' ) ) {
+					require_once ABSPATH . 'wp-admin/includes/file.php';
+				}
+				WP_Filesystem();
+				$source_content = $wp_filesystem->get_contents( $source_path );
+				if ( false === $source_content ) {
+					return array( 'success' => false, 'message' => 'Failed to read source file.' );
+				}
+				$security_error = $mcp_check_write_security( $final_dest, $source_content, strlen( $source_content ) );
 				if ( $security_error ) {
 					return array(
 						'success' => false,
@@ -1703,14 +1943,10 @@ function mcp_register_filesystem_abilities(): void {
 						);
 					}
 					$dest_backup_path = $mcp_create_backup( $final_dest );
+					if ( false === $dest_backup_path ) {
+						return array( 'success' => false, 'message' => 'Failed to create destination backup.' );
+					}
 				}
-
-				// Initialize WP_Filesystem.
-				global $wp_filesystem;
-				if ( ! function_exists( 'WP_Filesystem' ) ) {
-					require_once ABSPATH . 'wp-admin/includes/file.php';
-				}
-				WP_Filesystem();
 
 				if ( ! $wp_filesystem->move( $source_path, $final_dest, $overwrite ) ) {
 					return array(
@@ -1743,7 +1979,7 @@ function mcp_register_filesystem_abilities(): void {
 				return current_user_can( 'manage_options' );
 			},
 			'meta'                => array(
-				'mcp' => array('public' => true, 'type' => 'tool'),
+				'mcp'         => array( 'public' => true, 'type' => 'tool' ),
 				'annotations' => array(
 					'readonly'    => false,
 					'destructive' => true,
@@ -1753,5 +1989,4 @@ function mcp_register_filesystem_abilities(): void {
 		)
 	);
 }
-// Register abilities directly on the hook - no wrapper needed since this file is loaded during plugin loading
 add_action( 'wp_abilities_api_init', 'mcp_register_filesystem_abilities' );
