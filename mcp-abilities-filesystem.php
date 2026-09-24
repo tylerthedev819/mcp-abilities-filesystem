@@ -3,7 +3,7 @@
  * Plugin Name: MCP Abilities - Filesystem
  * Plugin URI: https://github.com/bjornfix/mcp-abilities-filesystem
  * Description: Filesystem abilities for MCP. Read, write, copy, move, and delete files within WordPress. Security-hardened with PHP injection detection.
- * Version: 1.0.2
+ * Version: 1.1.0
  * Author: Devenia
  * Author URI: https://devenia.com
  * License: GPL-2.0+
@@ -21,22 +21,38 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-error_log( 'MCP Filesystem: Plugin file loaded' );
+/**
+ * Directory for backups and the operation log, kept outside the web root.
+ *
+ * Defaults to a sibling of the WordPress root (e.g. /home/forge/site/mcp-filesystem
+ * on Forge) so nginx never serves it. Falls back to wp-content only when that
+ * parent isn't writable. Override with the `mcp_filesystem_storage_dir` filter.
+ *
+ * @return string Absolute path without trailing slash.
+ */
+function mcp_filesystem_storage_dir(): string {
+	$parent  = dirname( untrailingslashit( ABSPATH ) );
+	$default = wp_is_writable( $parent ) ? $parent . '/mcp-filesystem' : WP_CONTENT_DIR . '/mcp-filesystem';
+	$dir     = untrailingslashit( (string) apply_filters( 'mcp_filesystem_storage_dir', $default ) );
+
+	if ( ! is_dir( $dir ) ) {
+		wp_mkdir_p( $dir );
+	}
+
+	return $dir;
+}
 
 /**
  * Check if Abilities API is available.
  *
 */
 function mcp_filesystem_check_dependencies(): bool {
-    error_log( 'MCP Filesystem: Checking dependencies...' );
     if ( ! function_exists( 'wp_register_ability' ) ) {
-        error_log( 'MCP Filesystem: wp_register_ability function NOT found' );
         add_action( 'admin_notices', function () {
             echo '<div class="notice notice-error"><p><strong>MCP Abilities - Filesystem</strong> requires the <a href="https://github.com/WordPress/abilities-api">Abilities API</a> plugin to be installed and activated.</p></div>';
         } );
         return false;
     }
-    error_log( 'MCP Filesystem: wp_register_ability function FOUND' );
     return true;
 }
 
@@ -44,12 +60,10 @@ function mcp_filesystem_check_dependencies(): bool {
  * Register filesystem abilities.
  */
 function mcp_register_filesystem_abilities(): void {
-	error_log( 'MCP Filesystem: Starting to register filesystem abilities' );
 	if ( ! mcp_filesystem_check_dependencies() ) {
 		return;
 	}
 
-error_log( "MCP Filesystem: Dependencies OK, defining helpers" );
 	// =========================================================================
 	// HELPER FUNCTIONS
 	// =========================================================================
@@ -60,7 +74,7 @@ error_log( "MCP Filesystem: Dependencies OK, defining helpers" );
 	 * @return string The backup directory path.
 	 */
 	$mcp_get_backup_dir = function (): string {
-		$backup_dir = WP_CONTENT_DIR . '/mcp-backups/' . gmdate( 'Y-m-d' );
+		$backup_dir = mcp_filesystem_storage_dir() . '/backups/' . gmdate( 'Y-m-d' );
 		if ( ! is_dir( $backup_dir ) ) {
 			wp_mkdir_p( $backup_dir );
 		}
@@ -107,7 +121,7 @@ error_log( "MCP Filesystem: Dependencies OK, defining helpers" );
 	 * Clean up old backup folders (older than 7 days).
 	 */
 	$mcp_cleanup_old_backups = function (): void {
-		$backup_base = WP_CONTENT_DIR . '/mcp-backups';
+		$backup_base = mcp_filesystem_storage_dir() . '/backups';
 		if ( ! is_dir( $backup_base ) ) {
 			return;
 		}
@@ -139,14 +153,14 @@ error_log( "MCP Filesystem: Dependencies OK, defining helpers" );
 	};
 
 	/**
-	 * Log filesystem operations to wp-content/mcp-filesystem.log
+	 * Log filesystem operations to mcp-filesystem.log in the storage dir.
 	 *
 	 * @param string $operation The operation type (WRITE, DELETE, MOVE, COPY, APPEND).
 	 * @param string $path      The file path being operated on.
 	 * @param array  $details   Additional details (backup path, size, context, etc.).
 	 */
 	$mcp_log_filesystem_operation = function ( string $operation, string $path, array $details = array() ) use ( $mcp_cleanup_old_backups ): void {
-		$log_file  = WP_CONTENT_DIR . '/mcp-filesystem.log';
+		$log_file  = mcp_filesystem_storage_dir() . '/mcp-filesystem.log';
 		$timestamp = gmdate( 'Y-m-d H:i:s' );
 
 		// Security audit info.
@@ -175,15 +189,8 @@ error_log( "MCP Filesystem: Dependencies OK, defining helpers" );
 		}
 		$entry .= "\n";
 
-		// Append to log file (create if doesn't exist).
-		global $wp_filesystem;
-		if ( ! function_exists( 'WP_Filesystem' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/file.php';
-		}
-		WP_Filesystem();
-
-		$existing_log = $wp_filesystem->exists( $log_file ) ? $wp_filesystem->get_contents( $log_file ) : '';
-		$wp_filesystem->put_contents( $log_file, $existing_log . $entry, FS_CHMOD_FILE );
+		// Append instead of read-and-rewrite so each operation doesn't copy the whole log.
+		file_put_contents( $log_file, $entry, FILE_APPEND | LOCK_EX ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
 
 		// Cleanup old backups occasionally (1 in 10 chance to avoid overhead).
 		if ( wp_rand( 1, 10 ) === 1 ) {
@@ -392,7 +399,7 @@ error_log( "MCP Filesystem: Dependencies OK, defining helpers" );
 				),
 			),
 			'execute_callback'    => function ( array $input ): array {
-				$log_file = WP_CONTENT_DIR . '/mcp-filesystem.log';
+				$log_file = mcp_filesystem_storage_dir() . '/mcp-filesystem.log';
 				$lines    = min( max( (int) ( $input['lines'] ?? 100 ), 1 ), 500 );
 
 				if ( ! file_exists( $log_file ) ) {
@@ -443,7 +450,6 @@ error_log( "MCP Filesystem: Dependencies OK, defining helpers" );
 		),
 		)
 	);
-error_log( "MCP Filesystem: Registered filesystem/get-changelog" );
 
 	// =========================================================================
 	// FILESYSTEM - Read File
@@ -550,17 +556,13 @@ error_log( "MCP Filesystem: Registered filesystem/get-changelog" );
 				return current_user_can( 'manage_options' );
 			},
 			'meta'                => array(
-    'mcp' => array('public' => true, 'type' => 'tool'),
+				'mcp'         => array( 'public' => true, 'type' => 'tool' ),
 				'annotations' => array(
-        'readonly'    => true,
-        'destructive' => false,
-        'idempotent'  => true,
-    ),
-    'mcp' => array(
-        'public' => true,
-        'type'   => 'tool',
-    ),
-),
+					'readonly'    => true,
+					'destructive' => false,
+					'idempotent'  => true,
+				),
+			),
 		)
 	);
 
@@ -1340,6 +1342,14 @@ error_log( "MCP Filesystem: Registered filesystem/get-changelog" );
 					return array(
 						'success' => false,
 						'message' => 'Path is required.',
+					);
+				}
+
+				// A missing parent can't be realpath'd, so "wp-content/../../x" would slip past the root check below.
+				if ( preg_match( '#(^|/)\.\.(/|$)#', $path ) ) {
+					return array(
+						'success' => false,
+						'message' => 'Access denied. Path must not contain ".." segments.',
 					);
 				}
 

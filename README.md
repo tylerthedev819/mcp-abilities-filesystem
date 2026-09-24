@@ -6,7 +6,7 @@ Secure file operations for WordPress via MCP.
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/gpl-2.0)
 
 **Tested up to:** 6.9
-**Stable tag:** 1.0.3
+**Stable tag:** 1.1.0
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,7 +93,7 @@ This add-on plugin exposes filesystem operations through MCP (Model Context Prot
 }
 ```
 
-Files are backed up to `wp-content/mcp-backups/YYYY-MM-DD/` before deletion.
+Files are backed up to `mcp-filesystem/backups/YYYY-MM-DD/` (a sibling of the WordPress root, outside the web root) before deletion. Override with the `mcp_filesystem_storage_dir` filter.
 
 ## Security Features
 
